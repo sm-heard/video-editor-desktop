@@ -9,7 +9,13 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/{ffmpeg,ffprobe}*',
+    },
+    extraResource: [
+      './node_modules/ffmpeg-static',
+      './node_modules/ffprobe-static',
+    ],
   },
   rebuildConfig: {},
   makers: [

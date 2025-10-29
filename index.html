@@ -2,12 +2,71 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Hello World!</title>
-
+    <title>ClipForge - Video Editor</title>
   </head>
   <body>
-    <h1>💖 Hello World!</h1>
-    <p>Welcome to your Electron application.</p>
+    <div id="app">
+      <!-- Toolbar -->
+      <div id="toolbar">
+        <h1>ClipForge</h1>
+        <div id="toolbar-controls">
+          <button id="import-btn">Import Video</button>
+          <button id="record-screen-btn" disabled>Record Screen</button>
+          <button id="record-webcam-btn" disabled>Record Webcam</button>
+          <button id="export-btn" disabled>Export</button>
+        </div>
+      </div>
+
+      <!-- Main Content Area -->
+      <div id="main-content">
+        <!-- Preview Panel -->
+        <div id="preview-panel">
+          <div id="preview-container">
+            <video id="preview-video" controls></video>
+            <div id="preview-placeholder">
+              <p>Import a video to get started</p>
+            </div>
+          </div>
+          <div id="preview-controls">
+            <button id="play-btn">Play</button>
+            <button id="pause-btn">Pause</button>
+            <input type="range" id="seek-bar" min="0" max="100" value="0" />
+            <span id="time-display">0:00 / 0:00</span>
+          </div>
+        </div>
+
+        <!-- Media Library -->
+        <div id="media-library">
+          <h3>Media Library</h3>
+          <div id="media-clips"></div>
+        </div>
+      </div>
+
+      <!-- Timeline Panel -->
+      <div id="timeline-panel">
+        <div id="timeline-controls">
+          <button id="zoom-in-btn">+</button>
+          <button id="zoom-out-btn">-</button>
+          <span id="timeline-zoom">100%</span>
+        </div>
+        <div id="timeline-container">
+          <div id="timeline-ruler"></div>
+          <div id="timeline-tracks">
+            <div class="timeline-track" id="track-1">
+              <span class="track-label">Track 1</span>
+              <div class="track-content"></div>
+            </div>
+            <div class="timeline-track" id="track-2">
+              <span class="track-label">Track 2</span>
+              <div class="track-content"></div>
+            </div>
+          </div>
+          <div id="playhead"></div>
+        </div>
+      </div>
+    </div>
+
+    <input type="file" id="file-input" accept="video/*" multiple style="display: none;" />
     <script type="module" src="/src/renderer.ts"></script>
   </body>
 </html>
