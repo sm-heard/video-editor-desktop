@@ -3,18 +3,32 @@ import path from 'node:path';
 import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
-import ffprobeStatic from 'ffprobe-static';
 
 // Set FFmpeg and FFprobe paths
-if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-  console.log('FFmpeg path set to:', ffmpegStatic);
-}
+// Handle both development and packaged scenarios
+if (app.isPackaged) {
+  // In packaged app, binaries are in extraResources
+  const ffmpegPath = path.join(process.resourcesPath, 'ffmpeg-static', 'ffmpeg');
+  const ffprobePath = path.join(process.resourcesPath, 'ffprobe-static', 'bin', 'darwin', 'arm64', 'ffprobe');
 
-if (ffprobeStatic.path) {
-  ffmpeg.setFfprobePath(ffprobeStatic.path);
-  console.log('FFprobe path set to:', ffprobeStatic.path);
+  ffmpeg.setFfmpegPath(ffmpegPath);
+  ffmpeg.setFfprobePath(ffprobePath);
+  console.log('FFmpeg path set to:', ffmpegPath);
+  console.log('FFprobe path set to:', ffprobePath);
+} else {
+  // In development, use the npm packages
+  const ffmpegStatic = require('ffmpeg-static');
+  const ffprobeStatic = require('ffprobe-static');
+
+  if (ffmpegStatic) {
+    ffmpeg.setFfmpegPath(ffmpegStatic);
+    console.log('FFmpeg path set to:', ffmpegStatic);
+  }
+
+  if (ffprobeStatic.path) {
+    ffmpeg.setFfprobePath(ffprobeStatic.path);
+    console.log('FFprobe path set to:', ffprobeStatic.path);
+  }
 }
 
 // Register custom protocol schemes before app is ready
