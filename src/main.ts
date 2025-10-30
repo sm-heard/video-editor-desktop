@@ -239,9 +239,12 @@ ipcMain.handle('video:export', async (event, options) => {
             const tempFile = path.join(tempDir, `clip-${index}.mp4`);
             tempFiles.push(tempFile);
 
-            // First check if clip has audio
+            // First check if clip has audio and get video properties
             ffmpeg.ffprobe(clip.clipId, (err, metadata) => {
               const hasAudio = !err && metadata.streams.some((s) => s.codec_type === 'audio');
+              const videoStream = metadata.streams.find((s) => s.codec_type === 'video');
+              const width = videoStream?.width || 1920;
+              const height = videoStream?.height || 1080;
 
               const cmd = ffmpeg()
                 .input(clip.clipId)
@@ -249,7 +252,7 @@ ipcMain.handle('video:export', async (event, options) => {
                 .setDuration(clip.duration);
 
               if (!hasAudio) {
-                // Add silent audio source for video-only clips
+                // Add silent audio source for video-only clips (matching normalized properties)
                 cmd
                   .input('anullsrc=channel_layout=stereo:sample_rate=44100')
                   .inputFormat('lavfi')
@@ -260,7 +263,23 @@ ipcMain.handle('video:export', async (event, options) => {
                 .output(tempFile)
                 .videoCodec('libx264')
                 .audioCodec('aac')
-                .outputOptions(['-preset ultrafast', '-crf 23']) // Fast encoding!
+                // Normalize to exactly 1920x1080 (maintain aspect ratio, add black bars if needed)
+                .videoFilters([
+                  'scale=1920:1080:force_original_aspect_ratio=decrease',
+                  'pad=1920:1080:(ow-iw)/2:(oh-ih)/2'
+                ])
+                .outputOptions([
+                  '-preset ultrafast',
+                  '-crf 23',
+                  // Normalize audio properties for reliable concatenation
+                  '-ar 44100',           // Sample rate: 44.1kHz
+                  '-ac 2',               // Stereo channels
+                  '-b:a 128k',           // Audio bitrate: 128kbps
+                  // Normalize video properties
+                  '-pix_fmt yuv420p',    // Pixel format
+                  '-r 30',               // Frame rate: 30fps
+                  '-movflags +faststart' // Optimize for streaming
+                ])
                 .on('end', () => {
                   processedCount++;
                   const progress = (processedCount / totalClips) * 80; // First 80% is processing

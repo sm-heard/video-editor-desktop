@@ -306,7 +306,8 @@ button:disabled {
   bottom: 0;
   width: 2px;
   background-color: #ff4444;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: ew-resize;
   z-index: 10;
   left: 80px;
 }
@@ -315,11 +316,13 @@ button:disabled {
   content: '';
   position: absolute;
   top: 0;
-  left: -4px;
-  width: 10px;
-  height: 10px;
+  left: -6px;
+  width: 14px;
+  height: 14px;
   background-color: #ff4444;
   border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 /* Recording Modal */

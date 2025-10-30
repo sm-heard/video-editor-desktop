@@ -121,6 +121,12 @@ class VideoEditorApp {
       track.addEventListener('dragover', (e) => this.onTrackDragOver(e as DragEvent));
       track.addEventListener('drop', (e) => this.onTrackDrop(e as DragEvent));
     });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => this.onKeyDown(e));
+
+    // Playhead dragging
+    this.setupPlayheadDrag();
   }
 
   private setupExportListeners() {
@@ -253,20 +259,28 @@ class VideoEditorApp {
     if (this.timelineClips.size === 0) {
       this.previewMode = 'media';
       if (this.previewVideo.src) {
-        this.previewVideo.play();
-        this.isPlaying = true;
+        const playPromise = this.previewVideo.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            this.isPlaying = true;
+          }).catch((err) => {
+            console.error('Play failed:', err);
+            this.isPlaying = false;
+          });
+        }
       }
       return;
     }
 
     // Switch to timeline mode and start timeline playback
     this.previewMode = 'timeline';
+    this.isPlaying = true;
     this.startTimelinePlayback();
   }
 
   private pause() {
-    this.previewVideo.pause();
     this.isPlaying = false;
+    this.previewVideo.pause();
   }
 
   private seek(time: number) {
@@ -376,13 +390,7 @@ class VideoEditorApp {
     rightHandle.className = 'clip-handle right';
     clipElement.appendChild(rightHandle);
 
-    // Click to select
-    clipElement.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.selectTimelineClip(clip.id);
-    });
-
-    // Setup drag for repositioning
+    // Setup drag for repositioning (also handles selection on mousedown)
     this.setupClipDrag(clipElement, clip);
 
     // Setup trim handles
@@ -423,6 +431,116 @@ class VideoEditorApp {
     }
   }
 
+  private onKeyDown(e: KeyboardEvent) {
+    // Delete or Backspace to remove selected timeline clip
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Don't delete if user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      if (this.selectedTimelineClipId) {
+        e.preventDefault();
+        this.deleteTimelineClip(this.selectedTimelineClipId);
+      }
+    }
+  }
+
+  private setupPlayheadDrag() {
+    let isDragging = false;
+
+    const onMouseDown = (e: MouseEvent) => {
+      // Pause playback when grabbing the playhead
+      this.pause();
+      isDragging = true;
+      this.updatePlayheadFromMouse(e);
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      this.updatePlayheadFromMouse(e);
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+    };
+
+    // Make playhead itself draggable
+    this.playhead.addEventListener('mousedown', onMouseDown);
+
+    // Also allow clicking anywhere on the timeline container to jump there
+    this.timelineContainer.addEventListener('click', (e: MouseEvent) => {
+      if (isDragging) return;
+      this.pause();
+      this.updatePlayheadFromMouse(e);
+    });
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  private updatePlayheadFromMouse(e: MouseEvent) {
+    const rect = this.timelineContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left - 80; // Subtract track label width
+    const time = Math.max(0, x / (this.pixelsPerSecond * (this.timelineZoom / 100)));
+
+    // Update timeline playback time
+    this.timelinePlaybackTime = time;
+
+    // Find the clip at this time and update preview
+    if (this.timelineClips.size > 0) {
+      this.previewMode = 'timeline';
+      const clip = this.getClipAtTime(time);
+
+      if (clip) {
+        this.currentTimelineClipId = clip.id;
+
+        // Load video and seek to the correct position within the clip
+        const clipLocalTime = time - clip.startTime;
+        const videoTime = clip.trimStart + clipLocalTime;
+
+        this.previewVideo.src = `file://${clip.videoClip.path}`;
+        this.previewVideo.currentTime = videoTime;
+        this.previewVideo.classList.add('active');
+        this.previewPlaceholder.style.display = 'none';
+      }
+    }
+
+    // Update UI
+    this.updatePlayhead();
+    this.updateTimeDisplay();
+  }
+
+  private deleteTimelineClip(clipId: string) {
+    const clip = this.timelineClips.get(clipId);
+    if (!clip) return;
+
+    // Remove from timeline clips map
+    this.timelineClips.delete(clipId);
+
+    // Remove the DOM element
+    const clipElement = document.querySelector(`[data-timeline-clip-id="${clipId}"]`);
+    clipElement?.remove();
+
+    // Clear selection if this was the selected clip
+    if (this.selectedTimelineClipId === clipId) {
+      this.selectedTimelineClipId = null;
+    }
+
+    // If this was the current playback clip, clear it
+    if (this.currentTimelineClipId === clipId) {
+      this.currentTimelineClipId = null;
+    }
+
+    // Update UI
+    this.updateExportButton();
+    this.updatePreviewControls();
+
+    console.log(`Deleted clip ${clipId} from timeline`);
+  }
+
   private setupClipDrag(element: HTMLElement, clip: TimelineClip) {
     let isDragging = false;
     let startX = 0;
@@ -430,6 +548,10 @@ class VideoEditorApp {
 
     const onMouseDown = (e: MouseEvent) => {
       if ((e.target as HTMLElement).classList.contains('clip-handle')) return;
+
+      // Select the clip immediately on mousedown
+      this.selectTimelineClip(clip.id);
+
       isDragging = true;
       startX = e.clientX;
       startLeft = parseFloat(element.style.left || '0');
@@ -543,6 +665,9 @@ class VideoEditorApp {
     let startValue = 0;
 
     const onMouseDown = (e: MouseEvent) => {
+      // Select the clip when clicking trim handles
+      this.selectTimelineClip(clip.id);
+
       isDragging = true;
       startX = e.clientX;
       startValue = side === 'left' ? clip.trimStart : clip.trimEnd;
@@ -1035,8 +1160,17 @@ class VideoEditorApp {
       const videoTime = clip.trimStart + clipLocalTime;
 
       this.previewVideo.currentTime = videoTime;
-      this.previewVideo.play();
-      this.isPlaying = true;
+
+      // Only play if isPlaying is true (user pressed play)
+      if (this.isPlaying) {
+        const playPromise = this.previewVideo.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.error('Timeline playback failed:', err);
+            this.isPlaying = false;
+          });
+        }
+      }
     }
 
     // Update playhead position
