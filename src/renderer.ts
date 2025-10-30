@@ -97,10 +97,6 @@ class VideoEditorApp {
     // Export button
     document.getElementById('export-btn')?.addEventListener('click', () => this.exportVideo());
 
-    // Preview controls
-    document.getElementById('play-btn')?.addEventListener('click', () => this.play());
-    document.getElementById('pause-btn')?.addEventListener('click', () => this.pause());
-
     // Seek bar
     this.seekBar.addEventListener('input', (e) => {
       const target = e.target as HTMLInputElement;
@@ -432,14 +428,25 @@ class VideoEditorApp {
   }
 
   private onKeyDown(e: KeyboardEvent) {
-    // Delete or Backspace to remove selected timeline clip
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      // Don't delete if user is typing in an input field
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-        return;
-      }
+    // Don't handle shortcuts if user is typing in an input field
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+      return;
+    }
 
+    // Spacebar: Play/Pause toggle
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      if (this.isPlaying) {
+        this.pause();
+      } else {
+        this.play();
+      }
+      return;
+    }
+
+    // Delete or Backspace: Remove selected timeline clip
+    if (e.key === 'Delete' || e.key === 'Backspace') {
       if (this.selectedTimelineClipId) {
         e.preventDefault();
         this.deleteTimelineClip(this.selectedTimelineClipId);
@@ -773,14 +780,7 @@ class VideoEditorApp {
   }
 
   private updatePreviewControls() {
-    const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
-    const pauseBtn = document.getElementById('pause-btn') as HTMLButtonElement;
-
-    // Enable preview controls if we have either a selected media clip or timeline clips
-    const hasContent = this.selectedMediaClipId !== null || this.timelineClips.size > 0;
-
-    playBtn.disabled = !hasContent;
-    pauseBtn.disabled = !hasContent;
+    // No preview buttons to update anymore (using video player controls + spacebar)
   }
 
   // Recording Methods
