@@ -15,11 +15,18 @@ A professional desktop video editor built with Electron, TypeScript, and FFmpeg.
   - Hard snapping - clips automatically snap to valid positions
   - No overlaps allowed on same track
   - Click clips to seek and preview
+  - Drag playhead or click timeline to scrub/seek
   - Zoom in/out for precision editing
-- ✅ **Trim Functionality**: Drag clip handles to adjust in/out points
+- ✅ **Editing Tools**:
+  - Trim clips by dragging edge handles
+  - Split clips at playhead position (S key)
+  - Delete clips from timeline (Delete/Backspace)
+  - Move clips by dragging (with smart snapping)
+- ✅ **Keyboard Shortcuts**: Spacebar for play/pause, S to split, Delete to remove clips
 - ✅ **Fast Export**:
   - FFmpeg ultrafast preset for 5-10x faster encoding
   - Handles mixed media (with/without audio)
+  - Complete format normalization (1080p, 30fps, AAC audio)
   - Real-time progress tracking throughout
   - Exports to MP4 with H.264/AAC
 
@@ -109,7 +116,7 @@ This will create platform-specific installers (DMG for macOS, etc.)
 
 ### Previewing Media
 - **Click** a clip in Media Library to preview it
-- **Play/Pause** buttons control playback
+- **Video player controls** or **Spacebar** to play/pause
 - **Seek bar** allows scrubbing through video
 - Preview shows the source clip before adding to timeline
 
@@ -119,24 +126,35 @@ This will create platform-specific installers (DMG for macOS, etc.)
 - Clips **automatically snap** to valid positions (no overlaps)
 - **Click a timeline clip** to seek to that position
 
-### Timeline Playback
-- Once clips are on timeline, **Play** button plays the full composition
+### Timeline Playback & Navigation
+- **Spacebar** to play/pause the timeline composition
+- **Drag the playhead** to scrub through your edit
+- **Click anywhere on timeline** to jump to that position
 - Playback respects all trim points and transitions between clips
 - Timeline preview shows your actual edit, not the source clip
-- **Playhead** moves across timeline showing current position
 
 ### Editing on Timeline
 - **Move clips**: Drag clips left/right (snaps to valid positions only)
 - **Trim clips**: Drag edge handles to adjust in/out points
+- **Split clips**: Position playhead and press **S** to split clip at that point
+- **Delete clips**: Select a clip and press **Delete** or **Backspace**
 - **No overlaps**: Clips can't be placed on top of each other
 - **Zoom**: Use + and - buttons for precision
+
+### Keyboard Shortcuts
+- **Spacebar** - Play/Pause toggle
+- **S** - Split clip at playhead position
+- **Delete / Backspace** - Remove selected clip from timeline
+- **+** - Zoom in on timeline
+- **-** - Zoom out on timeline
 
 ### Exporting
 1. Add clips to timeline and arrange as desired
 2. Click **Export** button (disabled until timeline has clips)
 3. Progress bar shows real-time encoding progress
 4. Video exports to Desktop: `ClipForge-Export-YYYY-MM-DD-HH-MM-SS.mp4`
-5. Export is fast (~5-10x faster than original implementation)
+5. Export is fast (~5-10x faster than real-time)
+6. All clips are normalized to 1920x1080, 30fps, AAC audio for reliable concatenation
 
 ## Architecture
 
@@ -181,14 +199,19 @@ vite.*.config.ts   - Vite build configs
 
 - Only Track 1 plays during timeline preview (multi-track compositing not yet supported)
 - No undo/redo functionality
-- No keyboard shortcuts
 - No audio controls (volume, fade in/out, ducking)
 - No effects, filters, or color correction
 - No transitions between clips
-- Export resolution is source resolution (no custom resolution options)
+- Export normalizes all clips to 1080p (no custom resolution options)
 - No project save/load (session-only editing)
 
 ## Future Enhancements
+
+### Completed Features
+- [x] Keyboard shortcuts for common actions (Spacebar, S, Delete)
+- [x] Split clips at playhead position
+- [x] Delete clips from timeline
+- [x] Playhead dragging and seeking
 
 ### Nice-to-Have Features
 - [ ] Multi-track compositing (overlay Track 2 on Track 1)
@@ -196,15 +219,16 @@ vite.*.config.ts   - Vite build configs
 - [ ] Transitions (fade, dissolve, wipe, etc.)
 - [ ] Audio controls (volume adjustments, fade, ducking)
 - [ ] Color correction and filters
-- [ ] Keyboard shortcuts for common actions
+- [ ] More keyboard shortcuts (arrow keys, J/K/L playback)
 - [ ] Project save/load (JSON format)
 - [ ] Auto-save functionality
 - [ ] Undo/redo system
-- [ ] Export resolution options (720p, 1080p, 4K)
+- [ ] Export resolution options (720p, 1080p, 4K, custom)
 - [ ] Export format options (WebM, ProRes, etc.)
 - [ ] Batch export multiple timelines
 - [ ] Audio waveform visualization
 - [ ] Clip markers and annotations
+- [ ] Ripple delete (close gaps automatically)
 
 ## Contributing
 
