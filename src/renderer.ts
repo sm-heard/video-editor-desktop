@@ -445,6 +445,13 @@ class VideoEditorApp {
       return;
     }
 
+    // S key: Split clip at playhead
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      this.splitClipAtPlayhead();
+      return;
+    }
+
     // Delete or Backspace: Remove selected timeline clip
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (this.selectedTimelineClipId) {
@@ -546,6 +553,73 @@ class VideoEditorApp {
     this.updatePreviewControls();
 
     console.log(`Deleted clip ${clipId} from timeline`);
+  }
+
+  private splitClipAtPlayhead() {
+    // Make sure we're in timeline mode
+    if (this.timelineClips.size === 0) {
+      console.log('No clips on timeline to split');
+      return;
+    }
+
+    // Find the clip at the playhead position
+    const clipToSplit = this.getClipAtTime(this.timelinePlaybackTime);
+
+    if (!clipToSplit) {
+      console.log('No clip at playhead position');
+      return;
+    }
+
+    // Calculate where in the clip the split should occur
+    const splitPointInClip = this.timelinePlaybackTime - clipToSplit.startTime;
+
+    // Don't split if we're too close to the edges (less than 0.1 seconds)
+    if (splitPointInClip < 0.1 || splitPointInClip > clipToSplit.duration - 0.1) {
+      console.log('Split point too close to clip edge');
+      return;
+    }
+
+    // Pause playback
+    this.pause();
+
+    // Create the first clip (from start to split point)
+    const firstClip: TimelineClip = {
+      id: Date.now().toString() + Math.random().toString(36).substring(7),
+      clipId: clipToSplit.clipId,
+      videoClip: clipToSplit.videoClip,
+      startTime: clipToSplit.startTime,
+      duration: splitPointInClip,
+      trimStart: clipToSplit.trimStart,
+      trimEnd: clipToSplit.trimStart + splitPointInClip,
+      track: clipToSplit.track,
+    };
+
+    // Create the second clip (from split point to end)
+    const secondClip: TimelineClip = {
+      id: Date.now().toString() + Math.random().toString(36).substring(7) + '_2',
+      clipId: clipToSplit.clipId,
+      videoClip: clipToSplit.videoClip,
+      startTime: clipToSplit.startTime + splitPointInClip,
+      duration: clipToSplit.duration - splitPointInClip,
+      trimStart: clipToSplit.trimStart + splitPointInClip,
+      trimEnd: clipToSplit.trimEnd,
+      track: clipToSplit.track,
+    };
+
+    // Remove the original clip
+    this.timelineClips.delete(clipToSplit.id);
+
+    // Add the two new clips
+    this.timelineClips.set(firstClip.id, firstClip);
+    this.timelineClips.set(secondClip.id, secondClip);
+
+    // Clear selection
+    this.selectedTimelineClipId = null;
+
+    // Re-render the entire timeline
+    this.rerenderTimeline();
+
+    console.log(`Split clip at ${splitPointInClip.toFixed(2)}s`);
   }
 
   private setupClipDrag(element: HTMLElement, clip: TimelineClip) {
