@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, desktopCapturer } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
@@ -307,18 +307,52 @@ ipcMain.handle('video:export', async (event, options) => {
   });
 });
 
-// Recording handlers (placeholder for later implementation)
-ipcMain.handle('recording:startScreen', async () => {
-  // Will implement with desktopCapturer
-  return 'not-implemented';
+// Recording handlers
+ipcMain.handle('recording:getScreenSources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 150, height: 150 },
+    });
+
+    if (sources.length === 0) {
+      throw new Error(
+        'No screen sources available. On macOS, please grant Screen Recording permission in System Settings > Privacy & Security > Screen Recording.'
+      );
+    }
+
+    return sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
+    }));
+  } catch (error) {
+    console.error('Error getting screen sources:', error);
+    if (error instanceof Error) {
+      throw new Error(
+        `Failed to get screen sources. On macOS, please check System Settings > Privacy & Security > Screen Recording and make sure ClipForge has permission. Error: ${error.message}`
+      );
+    }
+    throw error;
+  }
 });
 
-ipcMain.handle('recording:startWebcam', async () => {
-  // Will implement with getUserMedia
-  return 'not-implemented';
-});
+ipcMain.handle('recording:save', async (_event, blobData: Uint8Array) => {
+  try {
+    // Generate filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `ClipForge-Recording-${timestamp}.webm`;
 
-ipcMain.handle('recording:stop', async () => {
-  // Will implement recording stop
-  return;
+    // Save to desktop
+    const desktopPath = app.getPath('desktop');
+    const videoPath = path.join(desktopPath, filename);
+
+    const buffer = Buffer.from(blobData);
+    fs.writeFileSync(videoPath, buffer);
+    console.log('Recording saved to:', videoPath);
+    return videoPath;
+  } catch (error) {
+    console.error('Error saving recording:', error);
+    throw error;
+  }
 });

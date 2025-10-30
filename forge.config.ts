@@ -17,6 +17,15 @@ const config: ForgeConfig = {
       'node_modules/ffmpeg-static',
       'node_modules/ffprobe-static',
     ],
+    osxSign: {
+      identity: undefined, // For development, don't sign
+      hardenedRuntime: false,
+    },
+    extendInfo: {
+      NSCameraUsageDescription: 'ClipForge needs access to your camera for webcam recording.',
+      NSMicrophoneUsageDescription: 'ClipForge needs access to your microphone for recording audio.',
+      NSScreenCaptureDescription: 'ClipForge needs access to screen recording to capture your screen.',
+    },
   },
   rebuildConfig: {},
   makers: [

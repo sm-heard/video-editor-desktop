@@ -39,6 +39,20 @@ class VideoEditorApp {
   private timelineZoom: number = 100;
   private pixelsPerSecond: number = 50;
 
+  // Recording state
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordedChunks: Blob[] = [];
+  private recordingStartTime: number = 0;
+  private recordingInterval: number | null = null;
+  private currentRecordingStream: MediaStream | null = null;
+
+  // Picture-in-picture recording state
+  private pipCanvas: HTMLCanvasElement | null = null;
+  private pipContext: CanvasRenderingContext2D | null = null;
+  private pipAnimationFrame: number | null = null;
+  private screenVideoElement: HTMLVideoElement | null = null;
+  private webcamVideoElement: HTMLVideoElement | null = null;
+
   // DOM Elements
   private previewVideo: HTMLVideoElement;
   private previewPlaceholder: HTMLElement;
@@ -67,6 +81,13 @@ class VideoEditorApp {
   private initEventListeners() {
     // Import button
     document.getElementById('import-btn')?.addEventListener('click', () => this.importVideos());
+
+    // Recording buttons
+    document.getElementById('record-screen-btn')?.addEventListener('click', () => this.startScreenRecording());
+    document.getElementById('record-webcam-btn')?.addEventListener('click', () => this.startWebcamRecording());
+    document.getElementById('record-pip-btn')?.addEventListener('click', () => this.startPictureInPictureRecording());
+    document.getElementById('stop-recording-btn')?.addEventListener('click', () => this.stopRecording());
+    document.getElementById('cancel-recording')?.addEventListener('click', () => this.closeRecordingModal());
 
     // Export button
     document.getElementById('export-btn')?.addEventListener('click', () => this.exportVideo());
@@ -478,6 +499,320 @@ class VideoEditorApp {
   private updateExportButton() {
     const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
     exportBtn.disabled = this.timelineClips.size === 0;
+  }
+
+  // Recording Methods
+  async startScreenRecording() {
+    try {
+      // Get available screen sources
+      const sources = await window.electronAPI.getScreenSources();
+
+      // Show modal with sources
+      const modal = document.getElementById('recording-modal') as HTMLElement;
+      const sourceGrid = document.getElementById('screen-sources') as HTMLElement;
+
+      // Clear previous sources
+      sourceGrid.innerHTML = '';
+
+      // Render source selection
+      sources.forEach((source) => {
+        const sourceItem = document.createElement('div');
+        sourceItem.className = 'source-item';
+        sourceItem.innerHTML = `
+          <img src="${source.thumbnail}" alt="${source.name}">
+          <p>${source.name}</p>
+        `;
+        sourceItem.addEventListener('click', () => {
+          this.startRecordingWithSource(source.id);
+          modal.classList.remove('active');
+        });
+        sourceGrid.appendChild(sourceItem);
+      });
+
+      modal.classList.add('active');
+    } catch (error) {
+      console.error('Error starting screen recording:', error);
+      alert(`Failed to start screen recording: ${error}`);
+    }
+  }
+
+  async startWebcamRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      this.startRecordingStream(stream);
+    } catch (error) {
+      console.error('Error starting webcam recording:', error);
+      alert(`Failed to start webcam recording: ${error}`);
+    }
+  }
+
+  async startPictureInPictureRecording() {
+    try {
+      // Get available screen sources
+      const sources = await window.electronAPI.getScreenSources();
+
+      // Show modal with sources
+      const modal = document.getElementById('recording-modal') as HTMLElement;
+      const sourceGrid = document.getElementById('screen-sources') as HTMLElement;
+
+      // Clear previous sources
+      sourceGrid.innerHTML = '';
+
+      // Render source selection
+      sources.forEach((source) => {
+        const sourceItem = document.createElement('div');
+        sourceItem.className = 'source-item';
+        sourceItem.innerHTML = `
+          <img src="${source.thumbnail}" alt="${source.name}">
+          <p>${source.name}</p>
+        `;
+        sourceItem.addEventListener('click', () => {
+          this.startPipRecordingWithSource(source.id);
+          modal.classList.remove('active');
+        });
+        sourceGrid.appendChild(sourceItem);
+      });
+
+      modal.classList.add('active');
+    } catch (error) {
+      console.error('Error starting picture-in-picture recording:', error);
+      alert(`Failed to start picture-in-picture recording: ${error}`);
+    }
+  }
+
+  private async startPipRecordingWithSource(sourceId: string) {
+    try {
+      // Get screen stream
+      const screenStream = await (navigator.mediaDevices as any).getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId,
+          },
+        },
+      });
+
+      // Get webcam stream
+      const webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240 },
+        audio: true,
+      });
+
+      // Create canvas for compositing
+      this.pipCanvas = document.createElement('canvas');
+      this.pipContext = this.pipCanvas.getContext('2d');
+
+      // Set canvas size to match screen stream
+      const screenTrack = screenStream.getVideoTracks()[0];
+      const settings = screenTrack.getSettings();
+      this.pipCanvas.width = settings.width || 1920;
+      this.pipCanvas.height = settings.height || 1080;
+
+      // Create video elements for both streams
+      this.screenVideoElement = document.createElement('video');
+      this.screenVideoElement.srcObject = screenStream;
+      this.screenVideoElement.play();
+
+      this.webcamVideoElement = document.createElement('video');
+      this.webcamVideoElement.srcObject = webcamStream;
+      this.webcamVideoElement.play();
+
+      // Wait for both videos to be ready
+      await Promise.all([
+        new Promise((resolve) => {
+          this.screenVideoElement!.onloadedmetadata = resolve;
+        }),
+        new Promise((resolve) => {
+          this.webcamVideoElement!.onloadedmetadata = resolve;
+        }),
+      ]);
+
+      // Start compositing frames
+      this.compositeFrames();
+
+      // Get canvas stream and add audio from webcam
+      const canvasStream = this.pipCanvas.captureStream(30); // 30 fps
+      const audioTrack = webcamStream.getAudioTracks()[0];
+      if (audioTrack) {
+        canvasStream.addTrack(audioTrack);
+      }
+
+      // Store streams for cleanup
+      this.currentRecordingStream = new MediaStream([
+        ...screenStream.getTracks(),
+        ...webcamStream.getTracks(),
+      ]);
+
+      // Start recording the composite stream
+      this.startRecordingStream(canvasStream);
+    } catch (error) {
+      console.error('Error starting PiP recording with source:', error);
+      alert(`Failed to start picture-in-picture recording: ${error}`);
+    }
+  }
+
+  private compositeFrames() {
+    if (!this.pipContext || !this.pipCanvas || !this.screenVideoElement || !this.webcamVideoElement) {
+      return;
+    }
+
+    const ctx = this.pipContext;
+    const canvas = this.pipCanvas;
+    const screenVideo = this.screenVideoElement;
+    const webcamVideo = this.webcamVideoElement;
+
+    // Draw screen content (full canvas)
+    ctx.drawImage(screenVideo, 0, 0, canvas.width, canvas.height);
+
+    // Calculate webcam overlay position (bottom-right corner)
+    const webcamWidth = 320;
+    const webcamHeight = 240;
+    const margin = 20;
+    const x = canvas.width - webcamWidth - margin;
+    const y = canvas.height - webcamHeight - margin;
+
+    // Draw border/shadow for webcam
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = '#4a9eff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x - 2, y - 2, webcamWidth + 4, webcamHeight + 4);
+
+    // Draw webcam feed on top
+    ctx.shadowBlur = 0;
+    ctx.drawImage(webcamVideo, x, y, webcamWidth, webcamHeight);
+
+    // Continue compositing
+    this.pipAnimationFrame = requestAnimationFrame(() => this.compositeFrames());
+  }
+
+  private async startRecordingWithSource(sourceId: string) {
+    try {
+      const stream = await (navigator.mediaDevices as any).getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId,
+          },
+        },
+      });
+
+      this.startRecordingStream(stream);
+    } catch (error) {
+      console.error('Error starting recording with source:', error);
+      alert(`Failed to start recording: ${error}`);
+    }
+  }
+
+  private startRecordingStream(stream: MediaStream) {
+    this.currentRecordingStream = stream;
+    this.recordedChunks = [];
+
+    // Create MediaRecorder
+    const options = { mimeType: 'video/webm; codecs=vp9' };
+    this.mediaRecorder = new MediaRecorder(stream, options);
+
+    this.mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        this.recordedChunks.push(event.data);
+      }
+    };
+
+    this.mediaRecorder.onstop = () => {
+      this.saveRecording();
+    };
+
+    // Start recording
+    this.mediaRecorder.start();
+    this.recordingStartTime = Date.now();
+
+    // Show recording controls
+    const recordingControls = document.getElementById('recording-controls') as HTMLElement;
+    recordingControls.style.display = 'flex';
+
+    // Update recording time display
+    this.recordingInterval = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - this.recordingStartTime) / 1000);
+      const timeDisplay = document.getElementById('recording-time') as HTMLElement;
+      timeDisplay.textContent = this.formatTime(elapsed);
+    }, 1000);
+  }
+
+  stopRecording() {
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      this.mediaRecorder.stop();
+
+      // Stop compositing animation if running
+      if (this.pipAnimationFrame) {
+        cancelAnimationFrame(this.pipAnimationFrame);
+        this.pipAnimationFrame = null;
+      }
+
+      // Clean up video elements
+      if (this.screenVideoElement) {
+        this.screenVideoElement.srcObject = null;
+        this.screenVideoElement = null;
+      }
+
+      if (this.webcamVideoElement) {
+        this.webcamVideoElement.srcObject = null;
+        this.webcamVideoElement = null;
+      }
+
+      // Clean up canvas
+      this.pipCanvas = null;
+      this.pipContext = null;
+
+      // Stop all tracks
+      if (this.currentRecordingStream) {
+        this.currentRecordingStream.getTracks().forEach((track) => track.stop());
+        this.currentRecordingStream = null;
+      }
+
+      // Clear interval
+      if (this.recordingInterval) {
+        clearInterval(this.recordingInterval);
+        this.recordingInterval = null;
+      }
+
+      // Hide recording controls
+      const recordingControls = document.getElementById('recording-controls') as HTMLElement;
+      recordingControls.style.display = 'none';
+    }
+  }
+
+  private async saveRecording() {
+    try {
+      // Create blob from recorded chunks
+      const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+
+      // Convert blob to Uint8Array
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Save via IPC (path is generated in main process)
+      const savedPath = await window.electronAPI.saveRecording(uint8Array);
+
+      // Import the recording into the media library
+      const metadata = await window.electronAPI.getVideoMetadata(savedPath);
+      this.addMediaClip(metadata);
+
+      alert(`Recording saved to ${savedPath} and added to media library!`);
+    } catch (error) {
+      console.error('Error saving recording:', error);
+      alert(`Failed to save recording: ${error}`);
+    }
+  }
+
+  closeRecordingModal() {
+    const modal = document.getElementById('recording-modal') as HTMLElement;
+    modal.classList.remove('active');
   }
 
   private formatTime(seconds: number): string {

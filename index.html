@@ -11,8 +11,9 @@
         <h1>ClipForge</h1>
         <div id="toolbar-controls">
           <button id="import-btn">Import Video</button>
-          <button id="record-screen-btn" disabled>Record Screen</button>
-          <button id="record-webcam-btn" disabled>Record Webcam</button>
+          <button id="record-screen-btn">Record Screen</button>
+          <button id="record-webcam-btn">Record Webcam</button>
+          <button id="record-pip-btn">Screen + Webcam</button>
           <button id="export-btn" disabled>Export</button>
         </div>
       </div>
@@ -67,6 +68,29 @@
     </div>
 
     <input type="file" id="file-input" accept="video/*" multiple style="display: none;" />
+
+    <!-- Recording Modal -->
+    <div id="recording-modal" class="modal">
+      <div class="modal-content">
+        <h2>Choose Recording Source</h2>
+        <div id="source-selection">
+          <div class="source-grid" id="screen-sources"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="cancel-recording">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recording Controls -->
+    <div id="recording-controls" class="recording-controls" style="display: none;">
+      <div class="recording-indicator">
+        <span class="rec-dot"></span>
+        <span id="recording-time">0:00</span>
+      </div>
+      <button id="stop-recording-btn">Stop Recording</button>
+    </div>
+
     <script type="module" src="/src/renderer.ts"></script>
   </body>
 </html>

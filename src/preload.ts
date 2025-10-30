@@ -40,9 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportVideo: (options: ExportOptions) => ipcRenderer.invoke('video:export', options),
 
   // Recording operations
-  startScreenRecording: () => ipcRenderer.invoke('recording:startScreen'),
-  startWebcamRecording: () => ipcRenderer.invoke('recording:startWebcam'),
-  stopRecording: () => ipcRenderer.invoke('recording:stop'),
+  getScreenSources: () => ipcRenderer.invoke('recording:getScreenSources'),
+  saveRecording: (blob: Uint8Array) => ipcRenderer.invoke('recording:save', blob),
 
   // Listen to events
   onExportProgress: (callback: (progress: number) => void) => {
@@ -65,9 +64,8 @@ declare global {
       selectVideoFiles: () => Promise<string[]>;
       getVideoMetadata: (filePath: string) => Promise<VideoClip>;
       exportVideo: (options: ExportOptions) => Promise<void>;
-      startScreenRecording: () => Promise<string>;
-      startWebcamRecording: () => Promise<string>;
-      stopRecording: () => Promise<void>;
+      getScreenSources: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>;
+      saveRecording: (blob: Uint8Array) => Promise<string>;
       onExportProgress: (callback: (progress: number) => void) => void;
       onExportComplete: (callback: (outputPath: string) => void) => void;
       onExportError: (callback: (error: string) => void) => void;
