@@ -39,6 +39,11 @@ class VideoEditorApp {
   private timelineZoom: number = 100;
   private pixelsPerSecond: number = 50;
 
+  // Preview mode: 'media' = previewing media library clip, 'timeline' = playing timeline composition
+  private previewMode: 'media' | 'timeline' = 'media';
+  private timelinePlaybackTime: number = 0;
+  private currentTimelineClipId: string | null = null;
+
   // Recording state
   private mediaRecorder: MediaRecorder | null = null;
   private recordedChunks: Blob[] = [];
@@ -171,6 +176,7 @@ class VideoEditorApp {
     this.mediaClips.set(clip.id, clip);
     this.renderMediaClip(clip);
     this.updateExportButton();
+    this.updatePreviewControls();
   }
 
   private renderMediaClip(clip: VideoClip) {
@@ -216,11 +222,17 @@ class VideoEditorApp {
 
     this.selectedMediaClipId = clipId;
 
+    // Switch to media preview mode
+    this.previewMode = 'media';
+    this.pause(); // Pause any timeline playback
+
     // Preview the clip
     const clip = this.mediaClips.get(clipId);
     if (clip) {
       this.loadVideoPreview(clip.path);
     }
+
+    this.updatePreviewControls();
   }
 
   private loadVideoPreview(videoPath: string) {
@@ -237,8 +249,19 @@ class VideoEditorApp {
   }
 
   private play() {
-    this.previewVideo.play();
-    this.isPlaying = true;
+    // If no timeline clips, stay in media mode
+    if (this.timelineClips.size === 0) {
+      this.previewMode = 'media';
+      if (this.previewVideo.src) {
+        this.previewVideo.play();
+        this.isPlaying = true;
+      }
+      return;
+    }
+
+    // Switch to timeline mode and start timeline playback
+    this.previewMode = 'timeline';
+    this.startTimelinePlayback();
   }
 
   private pause() {
@@ -252,20 +275,48 @@ class VideoEditorApp {
   }
 
   private onTimeUpdate() {
-    this.currentTime = this.previewVideo.currentTime;
-    this.seekBar.value = this.currentTime.toString();
-    this.updateTimeDisplay();
-    this.updatePlayhead();
+    if (this.previewMode === 'timeline') {
+      // In timeline mode, calculate timeline playback time
+      const currentClip = this.getClipAtTime(this.timelinePlaybackTime);
+
+      if (currentClip) {
+        const clipLocalTime = this.previewVideo.currentTime - currentClip.trimStart;
+        this.timelinePlaybackTime = currentClip.startTime + clipLocalTime;
+
+        // Check if we've reached the end of this clip
+        if (this.previewVideo.currentTime >= currentClip.trimEnd) {
+          // Move to next clip
+          this.timelinePlaybackTime = currentClip.startTime + currentClip.duration;
+          this.updateTimelinePlayback();
+        }
+      }
+
+      this.updatePlayhead();
+      this.updateTimeDisplay();
+    } else {
+      // Media preview mode
+      this.currentTime = this.previewVideo.currentTime;
+      this.seekBar.value = this.currentTime.toString();
+      this.updateTimeDisplay();
+      this.updatePlayhead();
+    }
   }
 
   private updateTimeDisplay() {
-    const current = this.formatTime(this.previewVideo.currentTime);
-    const total = this.formatTime(this.previewVideo.duration);
-    this.timeDisplay.textContent = `${current} / ${total}`;
+    if (this.previewMode === 'timeline') {
+      const current = this.formatTime(this.timelinePlaybackTime);
+      const total = this.formatTime(this.getTimelineDuration());
+      this.timeDisplay.textContent = `${current} / ${total}`;
+    } else {
+      const current = this.formatTime(this.previewVideo.currentTime);
+      const total = this.formatTime(this.previewVideo.duration);
+      this.timeDisplay.textContent = `${current} / ${total}`;
+    }
   }
 
   private updatePlayhead() {
-    const position = 80 + this.currentTime * this.pixelsPerSecond * (this.timelineZoom / 100);
+    const time = this.previewMode === 'timeline' ? this.timelinePlaybackTime : this.currentTime;
+    const position = 80 + time * this.pixelsPerSecond * (this.timelineZoom / 100);
     this.playhead.style.left = `${position}px`;
   }
 
@@ -298,6 +349,7 @@ class VideoEditorApp {
     this.timelineClips.set(timelineClip.id, timelineClip);
     this.renderTimelineClip(timelineClip);
     this.updateExportButton();
+    this.updatePreviewControls();
   }
 
   private renderTimelineClip(clip: TimelineClip) {
@@ -350,11 +402,24 @@ class VideoEditorApp {
 
     this.selectedTimelineClipId = clipId;
 
-    // Load clip in preview
+    // Pause any playback
+    this.pause();
+
+    // Get the clip
     const tClip = this.timelineClips.get(clipId);
     if (tClip) {
+      // Switch to timeline mode and seek to this clip's start
+      this.previewMode = 'timeline';
+      this.timelinePlaybackTime = tClip.startTime;
+      this.currentTimelineClipId = tClip.id;
+
+      // Load clip video and seek to trim start
       this.loadVideoPreview(tClip.videoClip.path);
       this.previewVideo.currentTime = tClip.trimStart;
+
+      // Update UI
+      this.updatePlayhead();
+      this.updateTimeDisplay();
     }
   }
 
@@ -375,20 +440,101 @@ class VideoEditorApp {
       if (!isDragging) return;
 
       const deltaX = e.clientX - startX;
-      const newLeft = Math.max(0, startLeft + deltaX);
-      element.style.left = `${newLeft}px`;
+      const proposedLeft = Math.max(0, startLeft + deltaX);
+      const proposedTime = proposedLeft / (this.pixelsPerSecond * (this.timelineZoom / 100));
+
+      // Find valid snap points on the same track
+      const snapPoints = this.getSnapPoints(clip);
+      const snappedTime = this.snapToNearestPoint(proposedTime, snapPoints, clip.duration, clip);
+
+      // Update visual position
+      const snappedLeft = snappedTime * this.pixelsPerSecond * (this.timelineZoom / 100);
+      element.style.left = `${snappedLeft}px`;
 
       // Update clip start time
-      clip.startTime = newLeft / (this.pixelsPerSecond * (this.timelineZoom / 100));
+      clip.startTime = snappedTime;
     };
 
     const onMouseUp = () => {
-      isDragging = false;
+      if (isDragging) {
+        isDragging = false;
+        // Re-render timeline to ensure everything is in sync
+        this.rerenderTimeline();
+      }
     };
 
     element.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
+  }
+
+  private getSnapPoints(excludeClip: TimelineClip): number[] {
+    const snapPoints: number[] = [0]; // Always allow snapping to start
+
+    // Get all clips on the same track, excluding the current one
+    const trackClips = Array.from(this.timelineClips.values())
+      .filter((c) => c.track === excludeClip.track && c.id !== excludeClip.id)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    // Add end times of all clips as snap points
+    for (const clip of trackClips) {
+      snapPoints.push(clip.startTime + clip.duration);
+    }
+
+    return snapPoints;
+  }
+
+  private snapToNearestPoint(time: number, snapPoints: number[], clipDuration: number, excludeClip?: TimelineClip): number {
+    const track = excludeClip?.track || 0;
+
+    // Find the nearest valid snap point
+    let bestSnapPoint = 0;
+    let minDistance = Infinity;
+
+    for (const snapPoint of snapPoints) {
+      const distance = Math.abs(time - snapPoint);
+
+      // Check if this snap point is valid (no overlap)
+      if (this.isValidPosition(snapPoint, clipDuration, track, excludeClip?.id)) {
+        if (distance < minDistance) {
+          minDistance = distance;
+          bestSnapPoint = snapPoint;
+        }
+      }
+    }
+
+    return bestSnapPoint;
+  }
+
+  private isValidPosition(startTime: number, duration: number, track: number, excludeClipId?: string): boolean {
+    const endTime = startTime + duration;
+
+    // Check for overlaps with existing clips
+    for (const clip of this.timelineClips.values()) {
+      if (clip.track !== track) continue;
+      if (excludeClipId && clip.id === excludeClipId) continue; // Skip the clip being moved
+
+      const clipEnd = clip.startTime + clip.duration;
+
+      // Check if there's any overlap
+      if (
+        (startTime >= clip.startTime && startTime < clipEnd) ||
+        (endTime > clip.startTime && endTime <= clipEnd) ||
+        (startTime <= clip.startTime && endTime >= clipEnd)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private rerenderTimeline() {
+    // Clear all rendered clips
+    document.querySelectorAll('.timeline-clip').forEach((el) => el.remove());
+
+    // Re-render all clips
+    this.timelineClips.forEach((clip) => this.renderTimelineClip(clip));
   }
 
   private setupTrimHandle(handle: HTMLElement, clip: TimelineClip, side: 'left' | 'right') {
@@ -499,6 +645,17 @@ class VideoEditorApp {
   private updateExportButton() {
     const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
     exportBtn.disabled = this.timelineClips.size === 0;
+  }
+
+  private updatePreviewControls() {
+    const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
+    const pauseBtn = document.getElementById('pause-btn') as HTMLButtonElement;
+
+    // Enable preview controls if we have either a selected media clip or timeline clips
+    const hasContent = this.selectedMediaClipId !== null || this.timelineClips.size > 0;
+
+    playBtn.disabled = !hasContent;
+    pauseBtn.disabled = !hasContent;
   }
 
   // Recording Methods
@@ -827,6 +984,104 @@ class VideoEditorApp {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  }
+
+  // Timeline Playback System
+  private startTimelinePlayback() {
+    // Get all clips on track 1, sorted by start time
+    const track1Clips = Array.from(this.timelineClips.values())
+      .filter((clip) => clip.track === 0)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    if (track1Clips.length === 0) {
+      return;
+    }
+
+    // If we're at the end, restart from beginning
+    const totalDuration = this.getTimelineDuration();
+    if (this.timelinePlaybackTime >= totalDuration) {
+      this.timelinePlaybackTime = 0;
+    }
+
+    // Find and play the clip at current timeline time
+    this.updateTimelinePlayback();
+  }
+
+  private updateTimelinePlayback() {
+    if (this.previewMode !== 'timeline') {
+      return;
+    }
+
+    const clip = this.getClipAtTime(this.timelinePlaybackTime);
+
+    if (!clip) {
+      // Reached end of timeline
+      this.pause();
+      this.timelinePlaybackTime = 0;
+      return;
+    }
+
+    // If we need to switch clips
+    if (this.currentTimelineClipId !== clip.id) {
+      this.currentTimelineClipId = clip.id;
+
+      // Load the clip video
+      this.previewVideo.src = `file://${clip.videoClip.path}`;
+      this.previewVideo.classList.add('active');
+      this.previewPlaceholder.style.display = 'none';
+
+      // Calculate position within this clip
+      const clipLocalTime = this.timelinePlaybackTime - clip.startTime;
+      const videoTime = clip.trimStart + clipLocalTime;
+
+      this.previewVideo.currentTime = videoTime;
+      this.previewVideo.play();
+      this.isPlaying = true;
+    }
+
+    // Update playhead position
+    this.updatePlayhead();
+  }
+
+  private getClipAtTime(time: number): TimelineClip | null {
+    // Get all clips on track 1, sorted by start time
+    const track1Clips = Array.from(this.timelineClips.values())
+      .filter((clip) => clip.track === 0)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    for (const clip of track1Clips) {
+      const clipEnd = clip.startTime + clip.duration;
+      if (time >= clip.startTime && time < clipEnd) {
+        return clip;
+      }
+    }
+
+    return null;
+  }
+
+  private getTimelineDuration(): number {
+    if (this.timelineClips.size === 0) {
+      return 0;
+    }
+
+    // Get all clips on track 1
+    const track1Clips = Array.from(this.timelineClips.values())
+      .filter((clip) => clip.track === 0);
+
+    if (track1Clips.length === 0) {
+      return 0;
+    }
+
+    // Find the latest end time
+    let maxEnd = 0;
+    for (const clip of track1Clips) {
+      const clipEnd = clip.startTime + clip.duration;
+      if (clipEnd > maxEnd) {
+        maxEnd = clipEnd;
+      }
+    }
+
+    return maxEnd;
   }
 }
 

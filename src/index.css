@@ -205,6 +205,13 @@ button:disabled {
   border-bottom: 1px solid #3a3a3a;
 }
 
+.timeline-label {
+  color: #e0e0e0;
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: auto;
+}
+
 #timeline-zoom {
   color: #999;
   font-size: 14px;
