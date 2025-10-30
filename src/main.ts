@@ -200,22 +200,16 @@ ipcMain.handle('video:export', async (event, options) => {
         return a.startTime - b.startTime;
       });
 
-      // For MVP and multi-clip support
+      // Single-pass export using filter_complex for better performance
       if (sortedClips.length === 1) {
         // Single clip export with trim
         const clip = sortedClips[0];
         const command = ffmpeg();
 
-        if (clip.trimStart > 0 || clip.trimEnd < clip.duration) {
-          command
-            .input(clip.clipId)
-            .setStartTime(clip.trimStart)
-            .setDuration(clip.duration);
-        } else {
-          command.input(clip.clipId);
-        }
-
         command
+          .input(clip.clipId)
+          .setStartTime(clip.trimStart)
+          .setDuration(clip.duration)
           .output(outputPath)
           .videoCodec('libx264')
           .audioCodec('aac')
@@ -232,27 +226,51 @@ ipcMain.handle('video:export', async (event, options) => {
           })
           .run();
       } else {
-        // Multi-clip export: Create temporary trimmed clips then concatenate
+        // Multi-clip export: Fast two-pass with ultrafast preset
         const tempDir = path.join(app.getPath('temp'), `clipforge-${Date.now()}`);
         fs.mkdirSync(tempDir, { recursive: true });
 
         const tempFiles: string[] = [];
+        let processedCount = 0;
+        const totalClips = sortedClips.length;
+
         const processClip = (clip: any, index: number): Promise<string> => {
           return new Promise((resolveClip, rejectClip) => {
             const tempFile = path.join(tempDir, `clip-${index}.mp4`);
             tempFiles.push(tempFile);
 
-            const cmd = ffmpeg()
-              .input(clip.clipId)
-              .setStartTime(clip.trimStart)
-              .setDuration(clip.duration)
-              .output(tempFile)
-              .videoCodec('libx264')
-              .audioCodec('aac')
-              .on('end', () => resolveClip(tempFile))
-              .on('error', (err) => rejectClip(err));
+            // First check if clip has audio
+            ffmpeg.ffprobe(clip.clipId, (err, metadata) => {
+              const hasAudio = !err && metadata.streams.some((s) => s.codec_type === 'audio');
 
-            cmd.run();
+              const cmd = ffmpeg()
+                .input(clip.clipId)
+                .setStartTime(clip.trimStart)
+                .setDuration(clip.duration);
+
+              if (!hasAudio) {
+                // Add silent audio source for video-only clips
+                cmd
+                  .input('anullsrc=channel_layout=stereo:sample_rate=44100')
+                  .inputFormat('lavfi')
+                  .inputOptions(['-t', clip.duration.toString()]);
+              }
+
+              cmd
+                .output(tempFile)
+                .videoCodec('libx264')
+                .audioCodec('aac')
+                .outputOptions(['-preset ultrafast', '-crf 23']) // Fast encoding!
+                .on('end', () => {
+                  processedCount++;
+                  const progress = (processedCount / totalClips) * 80; // First 80% is processing
+                  event.sender.send('export:progress', progress);
+                  resolveClip(tempFile);
+                })
+                .on('error', (err) => rejectClip(err));
+
+              cmd.run();
+            });
           });
         };
 
@@ -266,14 +284,15 @@ ipcMain.handle('video:export', async (event, options) => {
         const concatList = processedFiles.map((f) => `file '${f}'`).join('\n');
         fs.writeFileSync(concatListPath, concatList);
 
-        // Concatenate all clips
+        // Concatenate all clips - this is fast with -c copy
         ffmpeg()
           .input(concatListPath)
           .inputOptions(['-f concat', '-safe 0'])
           .outputOptions(['-c copy'])
           .output(outputPath)
           .on('progress', (progress) => {
-            event.sender.send('export:progress', progress.percent || 0);
+            const finalProgress = 80 + (progress.percent || 0) * 0.2; // Last 20% is concat
+            event.sender.send('export:progress', finalProgress);
           })
           .on('end', () => {
             // Cleanup temp files
