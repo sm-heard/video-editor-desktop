@@ -90,3 +90,7 @@ typings/
 
 # Electron-Forge
 out/
+
+CLAUDE.md
+AGENT.md
+ClipForge.md
